@@ -1,48 +1,9 @@
-# Estimation-based EVPI and EVPPI for baseline ESBL costs.
-# Based on voi_0514.R; no other R script needs to be sourced.
-# For a new total-cost run, change PSA_FILE to its output psa_results.rds.
-PSA_FILE <- Sys.getenv("OHARP_PSA_FILE", "data/psa_results.rds")
-SEED <- 123L
-OUTPUT_FOLDER <- "outputs/voi"
+# Run after total_cost_1028.R, from the 1028_code folder in RStudio.
+psa_results <- readRDS("outputs/total_cost_fit7/psa_results.rds")
+set.seed(123)
+output_dir <- "outputs/voi_fit7"
+dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
 
-script_directory <- function() {
-  for (frame in rev(sys.frames())) {
-    if (!is.null(frame$ofile)) return(dirname(normalizePath(frame$ofile, mustWork = TRUE)))
-  }
-  arg <- grep("^--file=", commandArgs(), value = TRUE)
-  if (length(arg) == 1L) {
-    path <- sub("^--file=", "", arg)
-    if (!file.exists(path)) path <- gsub("~+~", " ", path, fixed = TRUE)
-    return(dirname(normalizePath(path, mustWork = TRUE)))
-  }
-  if (dir.exists("data")) return(normalizePath(getwd()))
-  stop("Use source() on this file, or run it with Rscript.")
-}
-root <- script_directory()
-previous_directory <- getwd()
-setwd(root)
-options(digits = 17)
-override_output <- Sys.getenv("OHARP_OUTPUT", "")
-out <- if (nzchar(override_output)) override_output else OUTPUT_FOLDER
-if (file.exists(file.path(out, "RUN_COMPLETE.txt"))) {
-  stop("This output folder already contains a completed run. Change OUTPUT_FOLDER at the top of this script.")
-}
-dir.create(out, recursive = TRUE, showWarnings = FALSE)
-out <- normalizePath(out, mustWork = TRUE)
-require_packages <- function(packages) {
-  missing <- packages[!vapply(packages, requireNamespace, logical(1), quietly = TRUE)]
-  if (length(missing)) stop("Install these packages first: ", paste(missing, collapse = ", "))
-}
-
-require_packages(c("voi", "dplyr", "tidyr", "ggplot2", "scales", "purrr"))
-psa_results <- readRDS(PSA_FILE)
-stopifnot(!any(startsWith(names(psa_results), "attr_")))
-baseline <- psa_results[psa_results$scenario == "Baseline", ]
-stopifnot(nrow(baseline) >= 30L, !anyDuplicated(baseline$iter))
-input_description <- normalizePath(PSA_FILE, mustWork = TRUE)
-set.seed(SEED)
-setwd(out)
-# Original VOI calculations, with the output directory set above.
 ## ============================================================
 ## BASELINE EVPPI FIGURE — REVISED 4-OUTCOME VERSION
 ## ESBL-producing Enterobacterales cost outcomes
@@ -202,8 +163,8 @@ param_labels <- c(
   ## Community cost
   "s_comm_abx_r"  = "Community antibiotic course cost, ESBL",
   "s_comm_abx_s"  = "Community antibiotic course cost, non-ESBL",
-  "s_cost_c"      = "Community outpatient visit cost, ESBL",
-  "s_cost_c_si"   = "Community outpatient visit cost, non-ESBL",
+  "s_cost_c"      = "Community cost per infection episode, ESBL",
+  "s_cost_c_si"   = "Community cost per infection episode, non-ESBL",
   
   ## Productivity loss
   "unit_lp"        = "Productivity loss per death, ESBL",
@@ -434,7 +395,7 @@ print(as.data.frame(evpi_summary))
 ## ── 11. Save figure and table ────────────────────────────────
 
 ggsave(
-  filename = "baseline_esbl_evppi_top5_4_cost_outcomes.png",
+  filename = file.path(output_dir, "baseline_esbl_evppi_top5_4_cost_outcomes.png"),
   plot = p_evppi_top5,
   width = 13,
   height = 8,
@@ -443,7 +404,7 @@ ggsave(
 )
 
 ggsave(
-  filename = "baseline_esbl_evppi_top5_4_cost_outcomes.pdf",
+  filename = file.path(output_dir, "baseline_esbl_evppi_top5_4_cost_outcomes.pdf"),
   plot = p_evppi_top5,
   width = 13,
   height = 8,
@@ -452,13 +413,13 @@ ggsave(
 
 write.csv(
   evppi_results,
-  "baseline_esbl_evppi_4_cost_outcomes_all_results.csv",
+  file.path(output_dir, "baseline_esbl_evppi_4_cost_outcomes_all_results.csv"),
   row.names = FALSE
 )
 
 write.csv(
   evppi_top5,
-  "baseline_esbl_evppi_4_cost_outcomes_top5.csv",
+  file.path(output_dir, "baseline_esbl_evppi_4_cost_outcomes_top5.csv"),
   row.names = FALSE
 )
 
@@ -468,10 +429,7 @@ cat("  - baseline_esbl_evppi_top5_4_cost_outcomes.pdf\n")
 cat("  - baseline_esbl_evppi_4_cost_outcomes_all_results.csv\n")
 cat("  - baseline_esbl_evppi_4_cost_outcomes_top5.csv\n")
 
-write.csv(evpi_summary, "evpi_summary.csv", row.names = FALSE)
+write.csv(evpi_summary, file.path(output_dir, "evpi_summary.csv"), row.names = FALSE)
 
-capture.output(sessionInfo(), file = file.path(out, "sessionInfo.txt"))
-writeLines(c("Completed", paste("Input:", input_description),
-  paste("Time:", format(Sys.time(), tz = "UTC", usetz = TRUE))), file.path(out, "RUN_COMPLETE.txt"))
-setwd(previous_directory)
-cat("\nResults saved to:", out, "\n")
+
+save(evpi_summary, evppi_results, evppi_top5, file = file.path(output_dir, "voi_fit7.RData"))
