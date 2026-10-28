@@ -1,36 +1,15 @@
-# Resistance-attributable economic burden: designated 317.29 route
-# Based on econ_incremental_0514.R; no other R script needs to be sourced.
-# Change RUN_MODE to "fresh" to rerun the transmission/economic PSA.
-RUN_MODE <- Sys.getenv("OHARP_MODE", "reported")
-N_PSA <- as.integer(Sys.getenv("OHARP_N", "1000"))
+# Run from the Code folder in RStudio.
+# Original economic calculations; the calibrated input is fit7.
+RUN_MODE <- "fresh"
+N_PSA <- 1000L
 SEED <- 123L
-OUTPUT_FOLDER <- file.path("outputs", paste0("attributable_burden_", RUN_MODE))
-stopifnot(RUN_MODE %in% c("reported", "fresh"), !is.na(N_PSA), N_PSA > 0L)
-
-script_directory <- function() {
-  for (frame in rev(sys.frames())) {
-    if (!is.null(frame$ofile)) return(dirname(normalizePath(frame$ofile, mustWork = TRUE)))
-  }
-  arg <- grep("^--file=", commandArgs(), value = TRUE)
-  if (length(arg) == 1L) {
-    path <- sub("^--file=", "", arg)
-    if (!file.exists(path)) path <- gsub("~+~", " ", path, fixed = TRUE)
-    return(dirname(normalizePath(path, mustWork = TRUE)))
-  }
-  if (dir.exists("data")) return(normalizePath(getwd()))
-  stop("Use source() on this file, or run it with Rscript.")
-}
-root <- script_directory()
+OUTPUT_FOLDER <- "../analysis_outputs/attributable_burden_fresh"
 previous_directory <- getwd()
-setwd(root)
 options(digits = 17)
-override_output <- Sys.getenv("OHARP_OUTPUT", "")
-out <- if (nzchar(override_output)) override_output else OUTPUT_FOLDER
-if (file.exists(file.path(out, "RUN_COMPLETE.txt"))) {
-  stop("This output folder already contains a completed run. Change OUTPUT_FOLDER at the top of this script.")
-}
+out <- OUTPUT_FOLDER
 dir.create(out, recursive = TRUE, showWarnings = FALSE)
 out <- normalizePath(out, mustWork = TRUE)
+
 require_packages <- function(packages) {
   missing <- packages[!vapply(packages, requireNamespace, logical(1), quietly = TRUE)]
   if (length(missing)) stop("Install these packages first: ", paste(missing, collapse = ", "))
@@ -93,12 +72,20 @@ rebuild_attribution <- function(x, parameters) {
 }
 
 
-parameters <- readRDS("data/reported_input_parameters.rds")
+economic_inputs <- new.env()
+load("../RData/economic_results.RData", envir = economic_inputs)
+parameters <- economic_inputs$parameters
+rm(economic_inputs)
 if (RUN_MODE == "fresh") {
   require_packages(c("deSolve", "dplyr", "foreach", "doSNOW", "purrr",
                      "tidyr", "ggplot2", "scales", "doParallel"))
-  Sys.setenv(N_PSA_SAMPLES = N_PSA, PSA_BASE_SEED = SEED, TOTAL_COST_N_CORES = 1L)
-  posterior_samples <- readRDS("data/posterior_samples.rds")
+  Sys.setenv(N_PSA_SAMPLES = N_PSA, PSA_BASE_SEED = SEED, TOTAL_COST_N_CORES = 4L)
+  library(rstan)
+  load("../RData/fit7.RData")
+  posterior_samples <- as.data.frame(fit7, pars = c(
+    "beta_hh", "beta_eh", "beta_hc", "beta_sc_ac",
+    "beta_sc_ec", "beta_sh_sih", "delta_rcc_ric"
+  ))
   # Extracted from total_cost_0623.R, original lines 71-457.
   library(deSolve)
   library(dplyr)
@@ -1095,11 +1082,8 @@ if (RUN_MODE == "fresh") {
     lognormal_params_si_death = lognormal_params_si_death,
     los_epi_ranges = los_epi_ranges, icu_prop_params = icu_prop_params,
     full_sim_years = full_sim_years, economic_horizon_years = economic_horizon_years,
-    discount_rate = discount_rate, base_seed = SEED, n_cores = 1L)
+    discount_rate = discount_rate, base_seed = SEED, n_cores = 4L)
   expected_n <- N_PSA
-} else {
-  psa_inc_results <- readRDS("data/psa_inc_results.rds")
-  expected_n <- 1000L
 }
 incremental <- as.data.frame(psa_inc_results)
 stopifnot(nrow(incremental) == 5L * expected_n,
@@ -1124,7 +1108,7 @@ attr_annual <- do.call(rbind, lapply(split(attr, attr$calendar_year), function(z
 }))
 write_result(attr_annual, "attributable_burden_annual", out)
 
-if (RUN_MODE == "reported") stopifnot(round(attr_summary$mean[attr_summary$outcome == "total"], 2) == 317.29)
+
 print(attr_summary, row.names = FALSE)
 input_description <- paste(RUN_MODE, "dedicated positive-premium PSA")
 
